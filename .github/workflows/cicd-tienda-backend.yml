@@ -1,0 +1,65 @@
+name: CI/CD Tienda Perritos - Backend
+
+on:
+  push:
+    branches: [ "deploy" ]
+    paths:
+      - "backend/**"
+
+jobs:
+  build-push-deploy-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout del código
+      - name: Checkout código
+        uses: actions/checkout@v3
+
+      # 2. Configurar credenciales AWS desde GitHub Secrets
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # 3. Login en Amazon ECR
+      - name: Login en Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      # 4. Build de ambas imágenes backend y push a ECR
+      - name: Build y Push - Backend Ventas
+        run: |
+          cd backend/back-Ventas_SpringBoot
+          docker build -t tienda-backend-ventas .
+          docker tag tienda-backend-ventas:latest ${{ secrets.ECR_REPO_URL_BACKEND }}:ventas-latest
+          docker push ${{ secrets.ECR_REPO_URL_BACKEND }}:ventas-latest
+
+      - name: Build y Push - Backend Despachos
+        run: |
+          cd backend/back-Despachos_SpringBoot
+          docker build -t tienda-backend-despachos .
+          docker tag tienda-backend-despachos:latest ${{ secrets.ECR_REPO_URL_BACKEND }}:despachos-latest
+          docker push ${{ secrets.ECR_REPO_URL_BACKEND }}:despachos-latest
+
+      # 5. Desplegar ambos backends en EC2 vía SSM
+      - name: Desplegar Backend en EC2 vía SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids ${{ secrets.EC2_BACKEND_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --comment "Actualizar backends desde ECR" \
+            --parameters commands='[
+              "set -e",
+              "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}",
+              "docker pull ${{ secrets.ECR_REPO_URL_BACKEND }}:ventas-latest",
+              "docker pull ${{ secrets.ECR_REPO_URL_BACKEND }}:despachos-latest",
+              "docker stop tienda-backend-ventas || true",
+              "docker rm tienda-backend-ventas || true",
+              "docker run -d --name tienda-backend-ventas -p 3001:8080 --restart unless-stopped -e DB_ENDPOINT=${{ secrets.DB_ENDPOINT }} -e DB_PORT=3306 -e DB_NAME=${{ secrets.DB_NAME }} -e DB_USERNAME=${{ secrets.DB_USERNAME }} -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} ${{ secrets.ECR_REPO_URL_BACKEND }}:ventas-latest",
+              "docker stop tienda-backend-despachos || true",
+              "docker rm tienda-backend-despachos || true",
+              "docker run -d --name tienda-backend-despachos -p 3002:8081 --restart unless-stopped -e DB_ENDPOINT=${{ secrets.DB_ENDPOINT }} -e DB_PORT=3306 -e DB_NAME=${{ secrets.DB_NAME }} -e DB_USERNAME=${{ secrets.DB_USERNAME }} -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} ${{ secrets.ECR_REPO_URL_BACKEND }}:despachos-latest"
+            ]' \
+            --output text
