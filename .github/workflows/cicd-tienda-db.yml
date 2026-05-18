@@ -40,7 +40,7 @@ jobs:
       - name: Desplegar DB en EC2 vía SSM
         run: |
           aws ssm send-command \
-            --instance-ids ${{ secrets.EC2_BACKEND_INSTANCE_ID }} \
+            --instance-ids ${{ secrets.EC2_DB_INSTANCE_ID }} \
             --document-name "AWS-RunShellScript" \
             --comment "Actualizar tienda-db desde ECR" \
             --parameters commands='[
