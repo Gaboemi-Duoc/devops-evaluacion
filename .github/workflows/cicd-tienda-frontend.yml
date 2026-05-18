@@ -31,7 +31,7 @@ jobs:
       # 4. Build de la imagen frontend y push a ECR
       - name: Build imagen Frontend y Push a ECR
         run: |
-          cd frontend
+          cd front_despacho
           docker build \
             --build-arg VITE_API_URL=${{ secrets.VITE_API_URL }} \
             -t tienda-frontend .
