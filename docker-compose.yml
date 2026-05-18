@@ -1,0 +1,99 @@
+version: "3.9"
+
+networks:
+  tienda-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+services:
+
+  db:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    container_name: tienda-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-admin123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-tienda_perritos}
+      MYSQL_USER: ${MYSQL_USER:-alumno}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-alumno123}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - tienda-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-admin123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # BACKEND - Microservicio Ventas
+  # Host:3001 → Contenedor:8080
+  backend-ventas:
+    build:
+      context: ./backend/back-Ventas_SpringBoot
+      dockerfile: Dockerfile
+    container_name: tienda-backend-ventas
+    restart: unless-stopped
+    environment:
+      DB_ENDPOINT: "db"
+      DB_PORT: "3306"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://db:3306/tienda_perritos?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"
+      SPRING_DATASOURCE_USERNAME: alumno
+      SPRING_DATASOURCE_PASSWORD: alumno123
+      DB_NAME: ${MYSQL_DATABASE:-tienda_perritos}
+      DB_USERNAME: ${MYSQL_USER:-alumno}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-alumno123}
+    ports:
+      - "3001:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - tienda-net
+
+  # BACKEND - Microservicio Despachos
+  # Host:3002 Contenedor:8081
+  backend-despachos:
+    build:
+      context: ./backend/back-Despachos_SpringBoot
+      dockerfile: Dockerfile
+    container_name: tienda-backend-despachos
+    restart: unless-stopped
+    environment:
+      DB_ENDPOINT: "db"
+      DB_PORT: "3306"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://db:3306/tienda_perritos?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true"
+      SPRING_DATASOURCE_USERNAME: alumno
+      SPRING_DATASOURCE_PASSWORD: alumno123
+      DB_NAME: ${MYSQL_DATABASE:-tienda_perritos}
+      DB_USERNAME: ${MYSQL_USER:-alumno}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-alumno123}
+    ports:
+      - "3002:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - tienda-net
+
+  # FRONTEND - React + Vite servido por Nginx
+  front-despacho:
+    build:
+      context: ./front_despacho
+      dockerfile: Dockerfile
+    container_name: tienda-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend-ventas
+      - backend-despachos
+    networks:
+      - tienda-net
